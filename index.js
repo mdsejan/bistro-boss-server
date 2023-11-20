@@ -138,12 +138,20 @@ async function run() {
             res.send(result);
         })
 
+        app.post('/api/v1/menu', verifyToken, verifyAdmin, async (req, res) => {
+            const menuItem = req.body;
+            const result = await menuCollection.insertOne(menuItem);
+            res.send(result)
+        })
+
         // reviews Related API
         app.get('/api/v1/reviews', async (req, res) => {
 
             const result = await reviewsCollection.find().toArray();
             res.send(result);
         })
+
+
 
         // Carts Related API
         app.get('/api/v1/carts', async (req, res) => {
