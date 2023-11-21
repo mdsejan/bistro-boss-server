@@ -1,10 +1,13 @@
 const express = require('express');
 const app = express();
+require('dotenv').config();
 const cors = require('cors');
 var jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
 const port = process.env.PORT || 5000;
-require('dotenv').config();
+
+
 
 // middlewares
 
@@ -32,6 +35,7 @@ async function run() {
         const reviewsCollection = client.db('bistroDB').collection('reviews');
         const cartCollection = client.db('bistroDB').collection('carts');
         const userCollection = client.db('bistroDB').collection('users');
+        const paymentCollection = client.db('bistroDB').collection('payment');
 
 
         // JWT Related API
@@ -43,7 +47,6 @@ async function run() {
 
         // middlewares
         const verifyToken = (req, res, next) => {
-            console.log('inside verify', req.headers.authorization);
             if (!req.headers.authorization) {
                 return res.status(401).send({ message: 'unauthorized access' })
             }
@@ -84,15 +87,10 @@ async function run() {
             }
             const query = { email: email }
             const user = await userCollection.findOne(query);
-            console.log(user);
             let admin = false;
             if (user) {
                 admin = user?.role === 'admin'
             }
-
-            // if (user) {
-            //     admin = user.role === "admin";
-            // }
             res.send({ admin });
         })
 
@@ -176,6 +174,50 @@ async function run() {
 
             const result = await cartCollection.deleteOne(query);
             res.send(result)
+        })
+
+
+        // payment intent
+
+        app.post("/api/v1/create-payment-intent", async (req, res) => {
+            const { price } = req.body;
+            const amount = parseInt(price * 100);
+
+            const paymentIntent = await stripe.paymentIntents.create({
+                amount: amount,
+                currency: "usd",
+                payment_method_types: ['card']
+            })
+
+            res.send({
+                clientSecret: paymentIntent.client_secret,
+            });
+        })
+
+        app.get('/api/v1/payments/:email', verifyToken, async (req, res) => {
+
+            const query = { email: req.params.email }
+            if (req.params.email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+            const result = await paymentCollection.find(query).toArray();
+            res.send(result);
+        })
+
+        app.post('/api/v1/payments', async (req, res) => {
+            const payment = req.body;
+            const paymentResult = await paymentCollection.insertOne(payment);
+
+            //carefully delete each item from the cart
+            const query = {
+                _id: {
+                    $in: payment.cartIds.map(id => new ObjectId(id))
+                }
+            }
+
+            const deleteResult = await cartCollection.deleteMany(query)
+
+            res.send({ paymentResult, deleteResult })
         })
 
 
